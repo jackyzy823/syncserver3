@@ -6,9 +6,10 @@ import os
 import re
 import time
 import logging
+import binascii
 
 from cornice import Service
-from mozsvc.metrics import metrics_timer
+# from mozsvc.metrics import metrics_timer
 from pyramid import httpexceptions
 
 import tokenlib
@@ -143,14 +144,14 @@ def valid_authorization(request, **kwargs):
     # For legacy reasons the active_counts.lua script expects a longer
     # id stored in the key "uid", while other scripts can accept a
     # shorter id stored in the key "metrics_uid".
-    request.metrics['email'] = email
+    # request.metrics['email'] = email
     id_key = request.registry.settings.get("fxa.metrics_uid_secret_key")
     if id_key is None:
         id_key = 'insecure'
     hashed_fxa_uid_full = fxa_metrics_hash(email, id_key)
     hashed_fxa_uid = hashed_fxa_uid_full[:32]
-    request.metrics['uid'] = hashed_fxa_uid_full
-    request.metrics['metrics_uid'] = hashed_fxa_uid
+    # request.metrics['uid'] = hashed_fxa_uid_full
+    # request.metrics['metrics_uid'] = hashed_fxa_uid
 
     # Similarly, we expose an "anonymized" device-id for metrics purposes
     # where available.
@@ -161,7 +162,7 @@ def valid_authorization(request, **kwargs):
     except KeyError:
         device = 'none'
     hashed_device_id = fxa_metrics_hash(hashed_fxa_uid + device, id_key)[:32]
-    request.metrics['metrics_device_id'] = hashed_device_id
+    # request.metrics['metrics_device_id'] = hashed_device_id
 
     # We also pass the metrics id back to the client so it
     # can include that in its own metrics events.
@@ -175,14 +176,14 @@ def _validate_browserid_assertion(request, assertion):
     except ComponentLookupError:
         raise _unauthorized(description='Unsupported')
     try:
-        with metrics_timer('tokenserver.assertion.verify', request):
-            assertion = verifier.verify(assertion)
+        # with metrics_timer('tokenserver.assertion.verify', request):
+        assertion = verifier.verify(assertion)
     except browserid.errors.Error as e:
         # Convert CamelCase to under_scores for reporting.
         error_type = e.__class__.__name__
         error_type = re.sub('(?<=.)([A-Z])', r'_\1', error_type).lower()
-        request.metrics['token.assertion.verify_failure'] = 1
-        request.metrics['token.assertion.%s' % error_type] = 1
+        # request.metrics['token.assertion.verify_failure'] = 1
+        # request.metrics['token.assertion.%s' % error_type] = 1
         # Log a full traceback for errors that are not a simple
         # "your assertion was bad and we dont trust it".
         if not isinstance(e, browserid.errors.TrustError):
@@ -205,7 +206,7 @@ def _validate_browserid_assertion(request, assertion):
 
     # everything sounds good, add the assertion to the list of validated fields
     # and continue
-    request.metrics['token.assertion.verify_success'] = 1
+    # request.metrics['token.assertion.verify_success'] = 1
     request.validated['authorization'] = assertion
 
 
@@ -215,12 +216,13 @@ def _validate_oauth_token(request, token):
     except ComponentLookupError:
         raise _unauthorized(description='Unsupported')
     try:
-        with metrics_timer('tokenserver.oauth.verify', request):
-            token = verifier.verify(token)
+        # with metrics_timer('tokenserver.oauth.verify', request):
+        token = verifier.verify(token)
     except (fxa.errors.Error, ConnectionError) as e:
-        request.metrics['token.oauth.verify_failure'] = 1
+        # request.metrics['token.oauth.verify_failure'] = 1
         if isinstance(e, fxa.errors.InProtocolError):
-            request.metrics['token.oauth.errno.%s' % e.errno] = 1
+            # request.metrics['token.oauth.errno.%s' % e.errno] = 1
+            pass
         # Log a full traceback for errors that are not a simple
         # "your token was bad and we dont trust it".
         if not isinstance(e, fxa.errors.TrustError):
@@ -230,11 +232,11 @@ def _validate_oauth_token(request, token):
                 logger.exception("Unexpected verification error")
         # Report an appropriate error code.
         if isinstance(e, ConnectionError):
-            request.metrics['token.oauth.connection_error'] = 1
+            # request.metrics['token.oauth.connection_error'] = 1
             raise json_error(503, description="Resource is not available")
         raise _unauthorized("invalid-credentials")
 
-    request.metrics['token.oauth.verify_success'] = 1
+    # request.metrics['token.oauth.verify_success'] = 1
     request.validated['authorization'] = token
 
     # OAuth clients should send the scoped-key kid in lieu of X-Client-State.
@@ -247,7 +249,7 @@ def _validate_oauth_token(request, token):
             keys_changed_at, client_state = parse_key_id(kid)
             idpClaims = request.validated['authorization']['idpClaims']
             idpClaims['fxa-keysChangedAt'] = keys_changed_at
-            client_state = client_state.encode('hex')
+            client_state = binascii.b2a_hex(client_state).decode()
             if not 1 <= len(client_state) <= 32:
                 raise json_error(400, location='header', name='X-Client-State',
                                  description='Invalid client state value')
@@ -353,10 +355,10 @@ def return_token(request):
         keys_changed_at = 0
     else:
         generation = idp_claims.get('fxa-generation', 0)
-        if not isinstance(generation, (int, long)):
+        if not isinstance(generation, int):
             raise _unauthorized("invalid-generation")
         keys_changed_at = idp_claims.get('fxa-keysChangedAt', 0)
-        if not isinstance(keys_changed_at, (int, long)):
+        if not isinstance(keys_changed_at, int):
             raise _unauthorized("invalid-credentials",
                                 description="invalid keysChangedAt")
 
@@ -366,16 +368,16 @@ def return_token(request):
     service = get_service_name(application, version)
     client_state = request.validated['client-state']
 
-    with metrics_timer('tokenserver.backend.get_user', request):
-        user = backend.get_user(service, email)
+    # with metrics_timer('tokenserver.backend.get_user', request):
+    user = backend.get_user(service, email)
     if not user:
         allowed = settings.get('tokenserver.allow_new_users', True)
         if not allowed:
             raise _unauthorized('new-users-disabled')
-        with metrics_timer('tokenserver.backend.allocate_user', request):
-            user = backend.allocate_user(service, email, generation,
-                                         client_state,
-                                         keys_changed_at=keys_changed_at)
+        # with metrics_timer('tokenserver.backend.allocate_user', request):
+        user = backend.allocate_user(service, email, generation,
+                                     client_state,
+                                     keys_changed_at=keys_changed_at)
 
     # We now perform an elaborate set of consistency checks on the
     # provided claims, which we expect to behave as follows:
@@ -433,8 +435,8 @@ def return_token(request):
                 'new value with no keys_changed_at change')
         updates['client_state'] = client_state
     if updates:
-        with metrics_timer('tokenserver.backend.update_user', request):
-            backend.update_user(service, user, **updates)
+        # with metrics_timer('tokenserver.backend.update_user', request):
+        backend.update_user(service, user, **updates)
 
     # Error out if this client provided a generation number, but it is behind
     # the generation number of some previously-seen client.
@@ -476,7 +478,7 @@ def return_token(request):
         'fxa_kid': format_key_id(
             # Follow FxA behaviour of using generation as a fallback.
             user['keys_changed_at'] or user['generation'],
-            client_state.decode('hex')
+            binascii.a2b_hex(client_state),
         ),
         'hashed_fxa_uid': request.validated['hashed_fxa_uid'],
         'hashed_device_id': request.validated['hashed_device_id']
@@ -492,7 +494,7 @@ def return_token(request):
 
     # To help measure user retention, include the timestamp at which we
     # first saw this user as part of the logs.
-    request.metrics['uid.first_seen_at'] = user['first_seen_at']
+    # request.metrics['uid.first_seen_at'] = user['first_seen_at']
 
     # To help segmented analysis of client-side metrics, we can tell
     # clients to tag their metrics with a "node type" string that is
@@ -501,7 +503,7 @@ def return_token(request):
         node_type = settings['tokenserver.node_type_classifier'](user['node'])
     except KeyError:
         node_type = None
-    request.metrics['node_type'] = node_type
+    # request.metrics['node_type'] = node_type
 
     return {
         'id': token,

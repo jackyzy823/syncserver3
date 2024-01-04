@@ -15,22 +15,14 @@ import simplejson as json
 import re
 import os
 import logging
-from ConfigParser import NoOptionError
-
-# Also support the newer "configparser" module, if installed.
-try:
-    import configparser
-except ImportError:
-    pass
-else:
-    NoOptionError = (NoOptionError, configparser.NoOptionError)
+from configparser import NoOptionError
 
 
 random.seed()
 _RE_CODE = re.compile('[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}')
 
 
-def randchar(chars=string.digits + string.letters):
+def randchar(chars=string.digits + string.ascii_letters):
     """Generates a random char using urandom.
 
     If the system does not support it, the function fallbacks on random.choice
@@ -57,7 +49,7 @@ def _resolve_name(name):
         try:
             ret = __import__('.'.join(module_name))
             break
-        except ImportError, exc:
+        except ImportError as exc:
             last_exc = exc
             if cursor == 0:
                 raise
@@ -134,4 +126,4 @@ def create_hash(data):
     """
     rand = ''.join([randchar() for x in range(10)])
     data += rand
-    return md5(data + rand).hexdigest()
+    return md5((data + rand).encode()).hexdigest()

@@ -96,13 +96,13 @@ def convert_cornice_errors_to_respcodes(handler, registry):
                 # We have to return an integer, so use this as
                 # a generic "unexpected error" code.
                 code = WEAVE_ILLEGAL_METH
-            response.body = str(code)
+            response.text = str(code)
             response.content_length = len(response.body)
 
     def convert_cornice_errors_to_respcodes_tween(request):
         try:
             response = handler(request)
-        except HTTPException, response:
+        except HTTPException as response:
             if response.content_type == "application/json":
                 convert_cornice_response(request, response)
             raise
@@ -126,16 +126,16 @@ def convert_non_json_responses(handler, registry):
     def convert_non_json_responses_tween(request):
         try:
             response = handler(request)
-        except HTTPException, response:
+        except HTTPException as response:
             if response.content_type != "application/json":
-                response.body = str(WEAVE_UNKNOWN_ERROR)
+                response.text = str(WEAVE_UNKNOWN_ERROR)
                 response.content_length = len(response.body)
                 response.content_type = "application/json"
             raise
         else:
             if response.status_code >= 400:
                 if response.content_type != "application/json":
-                    response.body = str(WEAVE_UNKNOWN_ERROR)
+                    response.text = str(WEAVE_UNKNOWN_ERROR)
                     response.content_length = len(response.body)
                     response.content_type = "application/json"
             return response

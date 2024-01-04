@@ -67,27 +67,31 @@ COLLECTION_ID_REGEX = "[a-zA-Z0-9._-]{1,32}"
 ONE_KB = 1024.0
 
 
-def default_acl(request):
+class DefaultACL(object):
     """Default ACL: only the owner is allowed access.
-
-    This must be a function, not a method on SyncStorageService, because
-    cornice takes a copy of it when constructing the pyramid view.
     """
-    return [(Allow, int(request.matchdict["userid"]), "owner")]
+    def __init__(self, request):
+        self.request = request
+
+    def __acl__(self):
+        return [(Allow, int(self.request.matchdict["userid"]), "owner")]
 
 
-def expired_token_acl(request):
+class ExpiredTokenACL(object):
     """ACL allowing holders to expired token to still access the resource.
 
     This is useful for allowing access to certain non-security-sensitive
-    APIs with less client burden.  It must be a function, not a method on
-    SyncStorageService, because cornice takes a copy of it when constructing
-    the pyramid view.
+    APIs with less client burden.
     """
-    return [
-        (Allow, int(request.matchdict["userid"]), "owner"),
-        (Allow, "expired:%s" % (request.matchdict["userid"],), "owner")
-    ]
+    def __init__(self, request):
+        self.request = request
+
+    def __acl__(self):
+        return [
+            (Allow, int(self.request.matchdict["userid"]), "owner"),
+            (Allow, "expired:%s" % (self.request.matchdict["userid"],),
+             "owner")
+        ]
 
 
 class SyncStorageService(Service):
@@ -106,7 +110,7 @@ class SyncStorageService(Service):
         kwds["path"] = self._configure_the_path(kwds["path"])
         # Ensure all views require authenticated user.
         kwds.setdefault("permission", "owner")
-        kwds.setdefault("acl", default_acl)
+        kwds.setdefault("factory", DefaultACL)
         # Add default set of validators
         kwds.setdefault("validators", DEFAULT_VALIDATORS)
         super(SyncStorageService, self).__init__(**kwds)
@@ -162,7 +166,8 @@ info = SyncStorageService(name="info",
 info_quota = SyncStorageService(name="info_quota",
                                 path="/info/quota")
 info_timestamps = SyncStorageService(name="info_timestamps",
-                                     path="/info/collections")
+                                     path="/info/collections",
+                                     factory=ExpiredTokenACL)
 info_usage = SyncStorageService(name="info_usage",
                                 path="/info/collection_usage")
 info_counts = SyncStorageService(name="info_counts",
@@ -178,8 +183,7 @@ item = SyncStorageService(name="item",
                           path="/storage/{collection}/{item}")
 
 
-@info_timestamps.get(accept="application/json", renderer="sync-json",
-                     acl=expired_token_acl)
+@info_timestamps.get(accept="application/json", renderer="sync-json")
 @check_migration
 @default_decorators
 def get_info_timestamps(request):
@@ -221,7 +225,7 @@ def get_info_quota(request):
 def get_info_usage(request):
     storage = request.validated["storage"]
     sizes = storage.get_collection_sizes(request.user)
-    for collection, size in sizes.iteritems():
+    for collection, size in sizes.items():
         sizes[collection] = size / ONE_KB
     request.response.headers["X-Weave-Records"] = str(len(sizes))
     return sizes
@@ -383,7 +387,7 @@ def post_collection(request):
 
     # If some BSOs failed to parse properly, include them
     # in the failure list straight away.
-    for (id, error) in invalid_bsos.iteritems():
+    for (id, error) in invalid_bsos.items():
         res["failed"][id] = error
 
     ts = storage.set_items(user, collection, bsos)
@@ -415,18 +419,18 @@ def post_collection_batch(request):
     # The two flags are mutually exclusive.
     res = {'success': [], 'failed': {}}
 
-    for (id, error) in invalid_bsos.iteritems():
+    for (id, error) in invalid_bsos.items():
         res["failed"][id] = error
 
     try:
         if batch is True:
             try:
                 batch = storage.create_batch(user, collection)
-            except ConflictError, e:
+            except ConflictError as e:
                 logger.error('Collision in batch creation!')
                 logger.error(e)
                 raise
-            except Exception, e:
+            except Exception as e:
                 logger.error('Could not create batch')
                 logger.error(e)
                 raise
@@ -440,7 +444,7 @@ def post_collection_batch(request):
                 storage.append_items_to_batch(user, collection, batch, bsos)
             except ConflictError:
                 raise
-            except Exception, e:
+            except Exception as e:
                 logger.error('Could not append to batch("{0}")'.format(batch))
                 logger.error(e)
                 for bso in bsos:
@@ -451,11 +455,11 @@ def post_collection_batch(request):
         if commit:
             try:
                 ts = storage.apply_batch(user, collection, batch)
-            except ConflictError, e:
+            except ConflictError as e:
                 logger.error('Collision in batch commit!')
                 logger.error(e)
                 raise
-            except Exception, e:
+            except Exception as e:
                 logger.error("Could not apply batch")
                 logger.error(e)
                 raise
@@ -465,7 +469,7 @@ def post_collection_batch(request):
                 storage.close_batch(user, collection, batch)
                 request.response.status = 200
         else:
-            res["batch"] = b64encode(str(batch))
+            res["batch"] = b64encode(str(batch).encode())
     except ConflictError:
         raise
 

@@ -112,7 +112,7 @@ class FixedSecrets(object):
 
     """
     def __init__(self, secrets):
-        if isinstance(secrets, basestring):
+        if isinstance(secrets, str):
             secrets = secrets.split()
         self._secrets = secrets
 
@@ -140,7 +140,7 @@ class DerivedSecrets(object):
     HKDF_INFO_NODE_SECRET = b"services.mozilla.com/mozsvc/v1/node_secret/"
 
     def __init__(self, master_secrets):
-        if isinstance(master_secrets, basestring):
+        if isinstance(master_secrets, str):
             master_secrets = master_secrets.split()
         self._master_secrets = master_secrets
 
@@ -179,7 +179,7 @@ def manage(args):
 
     """
     def report_usage_error():
-        print>>sys.stderr, "\n".join(manage.__doc__.split("\n")[1:])
+        print("\n".join(manage.__doc__.split("\n")[1:]), file=sys.stderr)
         return 1
 
     if len(args) < 2:
@@ -194,13 +194,14 @@ def manage(args):
             return report_usage_error()
         except IndexError:
             size = 32
-        print os.urandom(size).encode('hex')
+        import binascii
+        print(binascii.hexlify(os.urandom(size)))
         return 0
 
     if args[1] == "derive":
         if len(args) != 4:
             return report_usage_error()
-        print DerivedSecrets([args[2]]).get(args[3])[0]
+        print(DerivedSecrets([args[2]]).get(args[3])[0])
         return 0
 
     return report_usage_error()

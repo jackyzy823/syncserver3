@@ -16,7 +16,7 @@ def json_error(status_code=400, status_message="error", errors=()):
     err = HTTPError()
     err.content_type = "application/json"
     err.status_code = status_code
-    err.body = json.dumps({
+    err.text = json.dumps({
         "status": status_message,
         "errors": errors,
     })

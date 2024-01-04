@@ -11,10 +11,7 @@ are implicitly assigned to a single, static node.
 """
 import time
 
-try:
-    from urlparse import urlparse
-except ImportError:
-    from urllib.parse import urlparse
+from urllib.parse import urlparse
 
 from mozsvc.exceptions import BackendError
 
@@ -24,7 +21,7 @@ from sqlalchemy.pool import QueuePool
 from sqlalchemy.sql import text as sqltext
 
 from tokenserver.assignment import INodeAssignment
-from zope.interface import implements
+from zope.interface import implementer
 
 
 metadata = MetaData()
@@ -102,9 +99,8 @@ def get_timestamp():
     return int(time.time() * 1000)
 
 
+@implementer(INodeAssignment)
 class StaticNodeAssignment(object):
-    implements(INodeAssignment)
-
     def __init__(self, sqluri, node_url, **kw):
         self.sqluri = sqluri
         self.node_url = node_url
@@ -132,42 +128,43 @@ class StaticNodeAssignment(object):
 
     def get_user(self, service, email, **kw):
         params = {'service': service, 'email': email}
-        res = self._engine.execute(_GET_USER_RECORDS, **params)
-        try:
-            row = res.fetchone()
-            if row is None:
-                return None
-            # The first row is the most up-to-date user record.
-            user = {
-                'email': email,
-                'uid': row.uid,
-                'node': self.node_url,
-                'generation': row.generation,
-                'client_state': row.client_state,
-                'first_seen_at': row.created_at,
-                'old_client_states': {},
-                'keys_changed_at': row.keys_changed_at,
-            }
-            # Any subsequent rows are due to old client-state values.
-            old_row = res.fetchone()
-            update_replaced_at = False
-            while old_row is not None:
-                if old_row.client_state != user['client_state']:
-                    user['old_client_states'][old_row.client_state] = True
-                # Make sure each old row is marked as replaced.
-                # They might not be, due to races in row creation.
-                if old_row.replaced_at is None:
-                    update_replaced_at = True
+        with self._engine.begin() as conn:
+            res = conn.execute(_GET_USER_RECORDS, params)
+            try:
+                row = res.fetchone()
+                if row is None:
+                    return None
+                # The first row is the most up-to-date user record.
+                user = {
+                    'email': email,
+                    'uid': row.uid,
+                    'node': self.node_url,
+                    'generation': row.generation,
+                    'client_state': row.client_state,
+                    'first_seen_at': row.created_at,
+                    'old_client_states': {},
+                    'keys_changed_at': row.keys_changed_at,
+                }
+                # Any subsequent rows are due to old client-state values.
                 old_row = res.fetchone()
-            if update_replaced_at:
-                self._engine.execute(_REPLACE_USER_RECORDS, {
-                    'service': service,
-                    'email': user['email'],
-                    'timestamp': row.created_at,
-                }).close()
-            return user
-        finally:
-            res.close()
+                update_replaced_at = False
+                while old_row is not None:
+                    if old_row.client_state != user['client_state']:
+                        user['old_client_states'][old_row.client_state] = True
+                    # Make sure each old row is marked as replaced.
+                    # They might not be, due to races in row creation.
+                    if old_row.replaced_at is None:
+                        update_replaced_at = True
+                    old_row = res.fetchone()
+                if update_replaced_at:
+                    self._engine.execute(_REPLACE_USER_RECORDS, {
+                        'service': service,
+                        'email': user['email'],
+                        'timestamp': row.created_at,
+                    }).close()
+                return user
+            finally:
+                res.close()
 
     def allocate_user(self, service, email, generation=0, client_state='',
                       keys_changed_at=0, **kw):
@@ -177,18 +174,19 @@ class StaticNodeAssignment(object):
             'client_state': client_state, 'timestamp': now,
             'keys_changed_at': keys_changed_at, 'node': self.node_url,
         }
-        res = self._engine.execute(_CREATE_USER_RECORD, **params)
-        res.close()
-        return {
-            'email': email,
-            'uid': res.lastrowid,
-            'node': self.node_url,
-            'generation': generation,
-            'client_state': client_state,
-            'first_seen_at': now,
-            'old_client_states': {},
-            'keys_changed_at': keys_changed_at,
-        }
+        with self._engine.begin() as conn:
+            res = conn.execute(_CREATE_USER_RECORD, params)
+            res.close()
+            return {
+                'email': email,
+                'uid': res.lastrowid,
+                'node': self.node_url,
+                'generation': generation,
+                'client_state': client_state,
+                'first_seen_at': now,
+                'old_client_states': {},
+                'keys_changed_at': keys_changed_at,
+            }
 
     def update_user(self, service, user, generation=None, client_state=None,
                     keys_changed_at=0, node=None, **kw):
@@ -200,9 +198,10 @@ class StaticNodeAssignment(object):
                     'email': user['email'],
                     'generation': generation,
                 }
-                res = self._engine.execute(_UPDATE_GENERATION_NUMBER, **params)
-                res.close()
-                user['generation'] = max(generation, user['generation'])
+                with self._engine.begin() as conn:
+                    res = conn.execute(_UPDATE_GENERATION_NUMBER, params)
+                    res.close()
+                    user['generation'] = max(generation, user['generation'])
         else:
             # reject previously-seen client-state strings.
             if client_state == user['client_state']:
@@ -221,20 +220,23 @@ class StaticNodeAssignment(object):
                 'timestamp': now,
                 'keys_changed_at': keys_changed_at, 'node': node,
             }
-            res = self._engine.execute(_CREATE_USER_RECORD, **params)
-            res.close()
-            user['uid'] = res.lastrowid
-            user['generation'] = generation
-            user['old_client_states'][user['client_state']] = True
-            user['client_state'] = client_state
-            user['keys_changed_at'] = keys_changed_at
-            user['node'] = node
-            # Mark old records as having been replaced.
-            # If we crash here, they are unmarked and we may fail to
-            # garbage collect them for a while, but the active state
-            # will be undamaged.
-            params = {
-                'service': service, 'email': user['email'], 'timestamp': now
-            }
-            res = self._engine.execute(_REPLACE_USER_RECORDS, **params)
-            res.close()
+            with self._engine.begin() as conn:
+                res = conn.execute(_CREATE_USER_RECORD, params)
+                res.close()
+                user['uid'] = res.lastrowid
+                user['generation'] = generation
+                user['old_client_states'][user['client_state']] = True
+                user['client_state'] = client_state
+                user['keys_changed_at'] = keys_changed_at
+                user['node'] = node
+                # Mark old records as having been replaced.
+                # If we crash here, they are unmarked and we may fail to
+                # garbage collect them for a while, but the active state
+                # will be undamaged.
+                params = {
+                    'service': service,
+                    'email': user['email'],
+                    'timestamp': now
+                }
+                res = conn.execute(_REPLACE_USER_RECORDS, params)
+                res.close()

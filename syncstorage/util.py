@@ -19,7 +19,7 @@ def get_timestamp(value=None):
             value = decimal.Decimal(str(value))
         return value.quantize(TWO_DECIMAL_PLACES,
                               rounding=decimal.ROUND_CEILING)
-    except decimal.InvalidOperation, e:
+    except decimal.InvalidOperation as e:
         raise ValueError(str(e))
 
 

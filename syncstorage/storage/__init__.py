@@ -466,7 +466,8 @@ class SyncStorage(object):
 
     @abc.abstractmethod
     def is_migrating(self, user):
-        """Determine if a given user record is migrating to a new storage backend
+        """Determine if a given user record is migrating to a new
+           storage backend
 
         Args:
             user: user object identifying the user in the storage.

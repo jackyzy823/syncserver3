@@ -23,7 +23,7 @@ MAX_SORTINDEX_VALUE = 999999999
 MIN_SORTINDEX_VALUE = -999999999
 VALID_ID_REGEX = re.compile("^[ -~]{1,64}$")  # <=64 printable characters
 
-SCALAR_TYPES = (int, long, basestring, decimal.Decimal)
+SCALAR_TYPES = (int, str, decimal.Decimal)
 
 
 class BSO(dict):
@@ -54,7 +54,7 @@ class BSO(dict):
             self[name] = value
 
     def __str__(self):
-        fields = dict((k, v) for (k, v) in self.iteritems() if k != 'payload')
+        fields = dict((k, v) for (k, v) in self.items() if k != 'payload')
         return "BSO(%s)" % (json.dumps(fields, sort_keys=True),)
 
     def validate(self):
@@ -118,7 +118,7 @@ class BSO(dict):
         # Check that the payload is a string, and is not too big.
         payload = self.get('payload')
         if payload is not None:
-            if not isinstance(payload, basestring):
+            if not isinstance(payload, str):
                 return False, 'payload not a string'
             self['payload_size'] = len(payload.encode("utf8"))
             if self['payload_size'] > MAX_PAYLOAD_SIZE:

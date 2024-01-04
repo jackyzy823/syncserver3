@@ -17,8 +17,8 @@ from cornice.errors import Errors
 
 
 def hash_email(email):
-    digest = sha1(email.lower()).digest()
-    return b32encode(digest).lower()
+    digest = sha1(email.lower().encode()).digest()
+    return b32encode(digest).decode().lower()
 
 
 def fxa_metrics_hash(value, hmac_key):
@@ -27,9 +27,9 @@ def fxa_metrics_hash(value, hmac_key):
     This is used to obfuscate the id before logging it with the metrics
     data, as a simple privacy measure.
     """
-    hasher = hmac.new(hmac_key, '', sha256)
+    hasher = hmac.new(hmac_key.encode(), b'', sha256)
     # value may be an email address, in which case we only want the first part
-    hasher.update(value.split("@", 1)[0])
+    hasher.update(value.split("@", 1)[0].encode())
     return hasher.hexdigest()
 
 

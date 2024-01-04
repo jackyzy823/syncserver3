@@ -5,10 +5,8 @@
 import binascii
 import os
 import logging
-try:
-    from urlparse import urlparse, urlunparse, urljoin
-except ImportError:
-    from urllib.parse import urlparse, urlunparse, urljoin
+
+from urllib.parse import urlparse, urlunparse, urljoin
 
 import requests
 
@@ -69,46 +67,46 @@ def includeme(config):
         idp_issuer = urlparse(idp_config["auth_server_base_url"]).netloc
 
     # Configure app-specific defaults based on top-level configuration.
-    settings.pop("config", None)
-    if "tokenserver.backend" not in settings:
-        # Default to our simple static node-assignment backend
-        settings["tokenserver.backend"] = DEFAULT_TOKENSERVER_BACKEND
-    if settings["tokenserver.backend"] == DEFAULT_TOKENSERVER_BACKEND:
-        # Provide some additional defaults for the default backend,
-        # unless overridden in the config.
-        if "tokenserver.sqluri" not in settings:
-            settings["tokenserver.sqluri"] = sqluri
-        if "tokenserver.node_url" not in settings:
-            settings["tokenserver.node_url"] = public_url
-        if "endpoints.sync-1.5" not in settings:
-            settings["endpoints.sync-1.5"] = "{node}/storage/1.5/{uid}"
-    if "tokenserver.monkey_patch_gevent" not in settings:
-        # Default to no gevent monkey-patching
-        settings["tokenserver.monkey_patch_gevent"] = False
-    if "tokenserver.applications" not in settings:
-        # Default to just the sync-1.5 application
-        settings["tokenserver.applications"] = "sync-1.5"
-    if "tokenserver.secrets.backend" not in settings:
-        # Default to a single fixed signing secret
-        settings["tokenserver.secrets.backend"] = "mozsvc.secrets.FixedSecrets"
-        settings["tokenserver.secrets.secrets"] = [secret]
-    if "tokenserver.allow_new_users" not in settings:
-        allow_new_users = settings.get("syncserver.allow_new_users")
-        if allow_new_users is not None:
-            settings["tokenserver.allow_new_users"] = allow_new_users
-    if "hawkauth.secrets.backend" not in settings:
-        # Default to the same secrets backend as the tokenserver
-        for key in settings.keys():
-            if key.startswith("tokenserver.secrets."):
-                newkey = "hawkauth" + key[len("tokenserver"):]
-                settings[newkey] = settings[key]
-    if "storage.backend" not in settings:
-        # Default to sql syncstorage backend
-        settings["storage.backend"] = "syncstorage.storage.sql.SQLStorage"
-        settings["storage.sqluri"] = sqluri
-        settings["storage.create_tables"] = True
+    settings.pop("config", None)  # ##!! Why?
+
+    # Default to our simple static node-assignment backend
+    settings["tokenserver.backend"] = DEFAULT_TOKENSERVER_BACKEND
+
+    # Provide some additional defaults for the default backend,
+    # unless overridden in the config.
+    settings["tokenserver.sqluri"] = sqluri
+    settings["tokenserver.node_url"] = public_url
+    settings["endpoints.sync-1.5"] = "{node}/storage/1.5/{uid}"
+
+    # Default to no gevent monkey-patching
+    settings["tokenserver.monkey_patch_gevent"] = False
+
+    # Default to just the sync-1.5 application
+    settings["tokenserver.applications"] = "sync-1.5"
+
+    # Default to a single fixed signing secret
+    # ##!!  resolved in mozsvc/user/__init__.py
+    settings["tokenserver.secrets.backend"] = "mozsvc.secrets.FixedSecrets"
+    settings["tokenserver.secrets.secrets"] = [secret]
+
+    allow_new_users = settings.get("syncserver.allow_new_users")
+    if allow_new_users is not None:
+        settings["tokenserver.allow_new_users"] = allow_new_users
+
+    # Default to the same secrets backend as the tokenserver
+    settings["hawkauth.secrets.backend"] = \
+        settings["tokenserver.secrets.backend"]
+    settings["hawkauth.secrets.secrets"] = \
+        settings["tokenserver.secrets.secrets"]
+
+    # Default to sql syncstorage backend
+    settings["storage.backend"] = "syncstorage.storage.sql.SQLStorage"
+    settings["storage.sqluri"] = sqluri
+    settings["storage.create_tables"] = True
+
     if "storage.batch_upload_enabled" not in settings:
         settings["storage.batch_upload_enabled"] = True
+
     if "browserid.backend" not in settings:
         # Default to local verifier to reduce external dependencies,
         # unless an explicit verifier URL has been configured.
@@ -156,6 +154,9 @@ def includeme(config):
     # Include the relevant sub-packages.
     config.scan("syncserver", ignore=["syncserver.wsgi_app"])
     config.include("syncstorage", route_prefix="/storage")
+    # ##!! Avoid  pyramid.exceptions.ConfigurationConflictError:
+    # ##!!          Conflicting configuration actions
+    config.commit()
     config.include("tokenserver", route_prefix="/token")
 
     # Add a top-level "it works!" view.
@@ -218,7 +219,7 @@ def str_to_bool(value):
 
 
 def generate_random_hex_key(length):
-    return binascii.hexlify(os.urandom(length // 2))
+    return binascii.hexlify(os.urandom(length // 2)).decode()
 
 
 @subscriber(NewRequest)

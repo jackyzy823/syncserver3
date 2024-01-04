@@ -45,7 +45,7 @@ def catch_backend_errors(handler, registry):
                 settings = request.registry.settings
                 retry_after = settings.get("mozsvc.retry_after", 1800)
 
-            return HTTPServiceUnavailable(body=msg, retry_after=retry_after,
+            return HTTPServiceUnavailable(text=msg, retry_after=retry_after,
                                           content_type="application/json")
 
     return catch_backend_errors_tween
@@ -92,7 +92,7 @@ def fuzz_backoff_headers(handler, registry):
     def fuzz_backoff_headers_tween(request):
         try:
             response = handler(request)
-        except HTTPException, response:
+        except HTTPException as response:
             fuzz_response(response)
             raise
         else:
@@ -130,7 +130,7 @@ def send_backoff_responses(handler, registry):
         def send_backoff_header_tween(request, handler=handler):
             try:
                 response = handler(request)
-            except HTTPException, response:
+            except HTTPException as response:
                 if random.random() < backoff_probability:
                     add_backoff_header(response)
                 raise

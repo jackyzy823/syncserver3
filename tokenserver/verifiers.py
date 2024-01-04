@@ -2,12 +2,12 @@ import json
 import warnings
 
 from pyramid.threadlocal import get_current_registry
-from zope.interface import implements, Interface
+from zope.interface import implementer, Interface
 from zope.interface.interfaces import ComponentLookupError # noqa; for re-export only
 
 import socket
 import requests
-import urlparse
+from urllib import parse as urlparse
 
 import browserid.verifiers.local
 from browserid.errors import (InvalidSignatureError, ExpiredSignatureError,
@@ -54,9 +54,8 @@ class IOAuthVerifier(Interface):
 
 
 # The default verifier from browserid
+@implementer(IBrowserIdVerifier)
 class LocalBrowserIdVerifier(browserid.verifiers.local.LocalVerifier):
-    implements(IBrowserIdVerifier)
-
     def __init__(self, trusted_issuers=None, allowed_issuers=None, **kwargs):
         """LocalVerifier constructor, with the following extra config options:
 
@@ -65,12 +64,12 @@ class LocalBrowserIdVerifier(browserid.verifiers.local.LocalVerifier):
             Set to True (the default) to use default certificate authorities.
             Set to False to disable SSL verification.
         """
-        if isinstance(trusted_issuers, basestring):
+        if isinstance(trusted_issuers, str):
             trusted_issuers = trusted_issuers.split()
         self.trusted_issuers = trusted_issuers
         if trusted_issuers is not None:
             kwargs["trusted_secondaries"] = trusted_issuers
-        if isinstance(allowed_issuers, basestring):
+        if isinstance(allowed_issuers, str):
             allowed_issuers = allowed_issuers.split()
         self.allowed_issuers = allowed_issuers
         if "ssl_certificate" in kwargs:
@@ -109,20 +108,19 @@ class LocalBrowserIdVerifier(browserid.verifiers.local.LocalVerifier):
 # of the assertion, and hasn't been updated for the new BrowserID formats.
 # Rather than blocking on that work, we use a simple work-alike that doesn't
 # do any local inspection of the assertion.
+@implementer(IBrowserIdVerifier)
 class RemoteBrowserIdVerifier(object):
-    implements(IBrowserIdVerifier)
-
     def __init__(self, audiences=None, trusted_issuers=None,
                  allowed_issuers=None, verifier_url=None, timeout=None):
         # Since we don't parse the assertion locally, we cannot support
         # list- or pattern-based audience strings.
         if audiences is not None:
-            assert isinstance(audiences, basestring)
+            assert isinstance(audiences, str)
         self.audiences = audiences
-        if isinstance(trusted_issuers, basestring):
+        if isinstance(trusted_issuers, str):
             trusted_issuers = trusted_issuers.split()
         self.trusted_issuers = trusted_issuers
-        if isinstance(allowed_issuers, basestring):
+        if isinstance(allowed_issuers, str):
             allowed_issuers = allowed_issuers.split()
         self.allowed_issuers = allowed_issuers
         if verifier_url is None:
@@ -172,6 +170,7 @@ class RemoteBrowserIdVerifier(object):
         return data
 
 
+@implementer(IOAuthVerifier)
 class RemoteOAuthVerifier(object):
     """A Verifier for FxA OAuth tokens that posts to a verifiaction service.
 
@@ -185,8 +184,6 @@ class RemoteOAuthVerifier(object):
     setups this might require it to dynamically discover the BrowserID
     issuer by querying the OAuth verifier's configuration.
     """
-    implements(IOAuthVerifier)
-
     def __init__(self, server_url=None, default_issuer=None, timeout=30,
                  scope=DEFAULT_OAUTH_SCOPE, jwks=None):
         if not scope:
@@ -201,7 +198,7 @@ class RemoteOAuthVerifier(object):
             server_url = self._client.server_url
             # Try to find the auth-server that matches the given oauth-server.
             # For well-known servers this avoids discovering it dynamically.
-            for urls in fxa.constants.ENVIRONMENT_URLS.itervalues():
+            for urls in fxa.constants.ENVIRONMENT_URLS.values():
                 if urls['oauth'] == server_url:
                     auth_url = urls['authentication']
                     default_issuer = urlparse.urlparse(auth_url).netloc
@@ -242,7 +239,7 @@ class RemoteOAuthVerifier(object):
             msg %= (self.server_url, str(e))
             raise ConnectionError(msg)
         issuer = userinfo.get('issuer', self.default_issuer)
-        if not issuer or not isinstance(issuer, basestring):
+        if not issuer or not isinstance(issuer, str):
             msg = 'Could not determine issuer from verifier response'
             raise fxa.errors.TrustError(msg)
         idpclaims = {}

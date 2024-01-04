@@ -65,7 +65,7 @@ def includeme(config):
     if secrets_file is not None:
         if 'tokenserver.secrets.backend' in settings:
             raise ValueError("can't use secrets_file with secrets.backend")
-        if isinstance(secrets_file, basestring):
+        if isinstance(secrets_file, str):
             secrets_file = secrets_file.split()
         settings['tokenserver.secrets.backend'] = 'mozsvc.secrets.Secrets'
         settings['tokenserver.secrets.filename'] = secrets_file
@@ -78,8 +78,8 @@ def includeme(config):
         logger.warning(
             'fxa.metrics_uid_secret_key is not set. '
             'This will allow PII to be more easily identified')
-    elif isinstance(id_key, unicode):
-        settings['fxa.metrics_uid_secret_key'] = id_key.encode('ascii')
+    elif isinstance(id_key, bytes):
+        settings['fxa.metrics_uid_secret_key'] = id_key.decode('ascii')
 
     read_endpoints(config)
 
@@ -149,7 +149,7 @@ def load_node_type_classifier(config):
     """
     settings = config.registry.settings
     patterns = settings.get('tokenserver.node_type_patterns', ())
-    if isinstance(patterns, basestring):
+    if isinstance(patterns, str):
         raise ValueError(
             "Expected 'tokenserver.node_type_patterns' to be a list")
     patterns = [p.split(":", 1) for p in patterns]

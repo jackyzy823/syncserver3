@@ -36,7 +36,7 @@ from syncstorage.storage import (SyncStorage,
 from syncstorage.storage.sql.dbconnect import (DBConnector, MAX_TTL,
                                                BackendError)
 
-from mozsvc.metrics import metrics_timer
+# from mozsvc.metrics import metrics_timer
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ def convert_db_errors(func):
     def convert_db_errors_wrapper(*args, **kwds):
         try:
             return func(*args, **kwds)
-        except BackendError, e:
+        except BackendError as e:
             # There is no standard exception to detect lock-wait timeouts,
             # so we report any operational db error that has "lock" in it.
             if "lock" in str(e).lower():
@@ -160,7 +160,7 @@ class SQLStorage(SyncStorage):
         self._collections_by_name = {}
         self._collections_by_id = {}
         if self.standard_collections:
-            for id, name in STANDARD_COLLECTIONS.iteritems():
+            for id, name in STANDARD_COLLECTIONS.items():
                 self._collections_by_name[name] = id
                 self._collections_by_id[id] = name
 
@@ -211,7 +211,8 @@ class SQLStorage(SyncStorage):
                 return
             # Begin a transaction and take a lock in the database.
             params = {"userid": userid, "collectionid": collectionid}
-            session.query("BEGIN_TRANSACTION_READ")
+            # ##!! sqlalchemy 2.0 do it for us:
+            # ##!! #session.query("BEGIN_TRANSACTION_READ")
             ts = session.query_scalar("LOCK_COLLECTION_READ", params)
             if ts is not None:
                 ts = bigint2ts(ts)
@@ -236,7 +237,8 @@ class SQLStorage(SyncStorage):
             if locked == 0:
                 raise RuntimeError("Can't escalate read-lock to write-lock")
             params = {"userid": userid, "collectionid": collectionid}
-            session.query("BEGIN_TRANSACTION_WRITE")
+            # ##!! sqlalchemy 2.0 do it for us:
+            # ##!! #session.query("BEGIN_TRANSACTION_WRITE")
             ts = session.query_scalar("LOCK_COLLECTION_WRITE", params)
             if ts is not None:
                 ts = bigint2ts(ts)
@@ -363,7 +365,7 @@ class SQLStorage(SyncStorage):
     def _find_items(self, session, user, collection, **params):
         """Find items matching the given search parameters."""
         userid = user["uid"]
-        for key, value in self._default_find_params.iteritems():
+        for key, value in self._default_find_params.items():
             params.setdefault(key, value)
         params["userid"] = userid
         params["collectionid"] = self._get_collection_id(session, collection)
@@ -420,7 +422,8 @@ class SQLStorage(SyncStorage):
 
     def _row_to_bso(self, row, timestamp):
         """Convert a database table row into a BSO object."""
-        item = dict(row)
+        # ##!! sqlalchemy 2.0's row is tuple
+        item = dict(row._mapping)
         for key in ("userid", "collection", "payload_size",):
             item.pop(key, None)
         ts = item.get("modified")
@@ -571,7 +574,7 @@ class SQLStorage(SyncStorage):
         valid = session.query_scalar("VALID_BATCH", params=params)
         return valid
 
-    @metrics_timer("syncstorage.storage.sql.append_items_to_batch")
+    # @metrics_timer("syncstorage.storage.sql.append_items_to_batch")
     @with_session
     def append_items_to_batch(self, session, user, collection, batchid,
                               items):
@@ -585,7 +588,7 @@ class SQLStorage(SyncStorage):
         session.insert_or_update("batch_upload_items", rows)
         return session.timestamp
 
-    @metrics_timer("syncstorage.storage.sql.apply_batch")
+    # @metrics_timer("syncstorage.storage.sql.apply_batch")
     @with_session
     def apply_batch(self, session, user, collection, batchid):
         userid = user["uid"]
@@ -602,7 +605,7 @@ class SQLStorage(SyncStorage):
         session.query("APPLY_BATCH_INSERT", params)
         return self._touch_collection(session, userid, collectionid)
 
-    @metrics_timer("syncstorage.storage.sql.close_batch")
+    # @metrics_timer("syncstorage.storage.sql.close_batch")
     @with_session
     def close_batch(self, session, user, collection, batchid):
         userid = user["uid"]
@@ -802,7 +805,7 @@ class SQLStorage(SyncStorage):
             tables = set(("bso",))
         else:
             tables = set(self.dbconnector.get_bso_table(i).name
-                         for i in xrange(self.dbconnector.shardsize))
+                         for i in range(self.dbconnector.shardsize))
             assert len(tables) == self.dbconnector.shardsize
         # Purge each table in turn, summing rowcounts.
         num_purged = 0
@@ -837,7 +840,7 @@ class SQLStorage(SyncStorage):
             tables = set(("batch_upload_items",))
         else:
             tables = set(self.dbconnector.get_batch_item_table(i).name
-                         for i in xrange(self.dbconnector.shardsize))
+                         for i in range(self.dbconnector.shardsize))
             assert len(tables) == self.dbconnector.shardsize
         # Purge each table in turn, summing rowcounts.
         num_purged = 0

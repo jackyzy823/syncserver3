@@ -10,7 +10,7 @@ import tokenlib
 import tokenlib.errors
 from mozsvc.user import TokenServerAuthenticationPolicy
 from pyramid.interfaces import IAuthenticationPolicy
-from zope.interface import implements
+from zope.interface import implementer
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ DEFAULT_EXPIRED_TOKEN_TIMEOUT = 60 * 60 * 2  # 2 hours, in seconds
 VALID_FXA_ID_REGEX = re.compile("^[A-Za-z0-9=\\-_]{1,64}$")
 
 
+@implementer(IAuthenticationPolicy)
 class SyncStorageAuthenticationPolicy(TokenServerAuthenticationPolicy):
     """Pyramid authentication policy with special handling of expired tokens.
 
@@ -32,9 +33,6 @@ class SyncStorageAuthenticationPolicy(TokenServerAuthenticationPolicy):
     just "<uid>", allowing this case to be specially detected and handled for
     some resources without interfering with the usual authentication rules.
     """
-
-    implements(IAuthenticationPolicy)
-
     def __init__(self, secrets=None, **kwds):
         self.expired_token_timeout = kwds.pop("expired_token_timeout", None)
         if self.expired_token_timeout is None:
@@ -85,10 +83,10 @@ class SyncStorageAuthenticationPolicy(TokenServerAuthenticationPolicy):
                     # to explicitly dig it back out from `request.user`.
                     data["expired_uid"] = data["uid"]
                     userid = data["uid"] = "expired:%d" % (data["uid"],)
-            except tokenlib.errors.InvalidSignatureError, e:
+            except tokenlib.errors.InvalidSignatureError:
                 # Token signature check failed, try the next secret.
                 continue
-            except TypeError, e:
+            except TypeError as e:
                 # Something went wrong when validating the contained data.
                 raise ValueError(str(e))
             else:
@@ -101,8 +99,8 @@ class SyncStorageAuthenticationPolicy(TokenServerAuthenticationPolicy):
 
         # Let the app access all user data from the token.
         request.user.update(data)
-        request.metrics["metrics_uid"] = data.get("hashed_fxa_uid")
-        request.metrics["metrics_device_id"] = data.get("hashed_device_id")
+        # request.metrics["metrics_uid"] = data.get("hashed_fxa_uid")
+        # request.metrics["metrics_device_id"] = data.get("hashed_device_id")
 
         # Sanity-check that we're on the right node.
         if data["node"] != node_name:
@@ -162,7 +160,7 @@ class SyncStorageAuthenticationPolicy(TokenServerAuthenticationPolicy):
         except KeyError:
             raise ValueError("missing node in token data")
         else:
-            if not isinstance(user["node"], basestring):
+            if not isinstance(user["node"], str):
                 raise ValueError("invalid node in token data")
 
         # It might contain additional user identifiers for
@@ -216,6 +214,7 @@ def includeme(config):
     # Build a SyncStorageAuthenticationPolicy from the deployment settings.
     settings = config.get_settings()
     authn_policy = SyncStorageAuthenticationPolicy.from_settings(settings)
+    config.set_security_policy(None)
     config.set_authentication_policy(authn_policy)
 
     # Set the forbidden view to use the challenge() method from the policy.

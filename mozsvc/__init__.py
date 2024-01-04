@@ -23,5 +23,5 @@ def includeme(config):
     config.registry["mozsvc.has_been_included"] = True
     config.add_route('heartbeat', '/__heartbeat__')
     config.include('mozsvc.tweens')
-    config.include('mozsvc.metrics')
+    # ##!! config.include('mozsvc.metrics')
     config.scan('mozsvc.views')

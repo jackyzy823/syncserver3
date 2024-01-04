@@ -22,7 +22,7 @@ import re
 import sys
 import copy
 import logging
-import urlparse
+from urllib import parse as urlparse
 import traceback
 import functools
 from collections import defaultdict
@@ -37,7 +37,7 @@ from sqlalchemy import (Integer, String, Text, BigInteger,
                         MetaData, Column, Table, Index, SmallInteger)
 from sqlalchemy.dialects import postgresql, mysql
 
-from mozsvc.metrics import metrics_timer, annotate_request
+# from mozsvc.metrics import metrics_timer, annotate_request
 from mozsvc.exceptions import BackendError
 
 from syncstorage.storage.sql import (queries_generic,
@@ -300,7 +300,7 @@ class QueuePoolWithMaxBacklog(QueuePool):
                                               self._pool.max_backlog)
         return new_self
 
-    @metrics_timer("syncstorage.storage.sql.pool.get")
+    # ##!! #@metrics_timer("syncstorage.storage.sql.pool.get")
     def _do_get(self):
         return QueuePool._do_get(self)
 
@@ -374,7 +374,7 @@ class DBConnector(object):
         # Create the engine.
         # We set the umask during this call, to ensure that any sqlite
         # databases will be created with secure permissions by default.
-        old_umask = os.umask(0077)
+        old_umask = os.umask(0o077)
         try:
             self.engine = create_engine(sqluri, **sqlkw)
         finally:
@@ -393,7 +393,7 @@ class DBConnector(object):
                 bso.create(self.engine, checkfirst=True)
                 bui.create(self.engine, checkfirst=True)
             else:
-                for idx in xrange(self.shardsize):
+                for idx in range(self.shardsize):
                     bsoN = get_bso_table(idx)
                     bsoN.create(self.engine, checkfirst=True)
                     buiN = get_batch_item_table(idx)
@@ -420,6 +420,7 @@ class DBConnector(object):
         # so that the resulting string is compatible with sqltext().
         self._render_query_dialect = copy.copy(self.engine.dialect)
         self._render_query_dialect.paramstyle = "named"
+        self._render_query_dialect.positional = False
 
         # PyMySQL Connection objects hold a reference to their most recent
         # Result object, which can cause large datasets to remain in memory.
@@ -459,7 +460,7 @@ class DBConnector(object):
         # If it's a string, do some interpolation and return it.
         # XXX TODO: we could pre-parse these queries at load time to look for
         # string interpolation variables, saving some time on each call.
-        assert isinstance(query, basestring)
+        assert isinstance(query, str)
         qvars = {}
         if "%(bso)s" in query:
             if "bso" in params:
@@ -513,9 +514,9 @@ def is_retryable_db_error(engine, exc):
         # The below flags such errors in the request metrics log, so we can
         # easily track which requests are triggering the error.
         # See https://bugzilla.mozilla.org/show_bug.cgi?id=1057892
-        if mysql_error_code == 1032:
-            metric_name = "syncstorage.storage.sql.tokudb_error"
-            annotate_request(None, metric_name, 1)
+        # ##!! #if mysql_error_code == 1032:
+        # ##!! #    metric_name = "syncstorage.storage.sql.tokudb_error"
+        # ##!! #    annotate_request(None, metric_name, 1)
         # The following MySQL lock-related errors can be safely retried:
         #    1205: lock wait timeout exceeded
         #    1206: lock table full
@@ -557,7 +558,7 @@ def report_backend_errors(func):
     def report_backend_errors_wrapper(self, *args, **kwds):
         try:
             return func(self, *args, **kwds)
-        except Exception, exc:
+        except Exception as exc:
             if not is_operational_db_error(self._connector.engine, exc):
                 raise
             # An unexpected database-level error.
@@ -651,9 +652,9 @@ class DBConnection(object):
             # new connection, but only if the failed connection was never
             # successfully used as part of this transaction.
             try:
-                query_str = self._render_query(query, params, annotations)
-                return self._exec_with_cleanup(connection, query_str, **params)
-            except DBAPIError, exc:
+                # query_str = self._render_query(query, params, annotations)
+                return self._exec_with_cleanup(connection, query, params)
+            except DBAPIError as exc:
                 if not is_retryable_db_error(self._connector.engine, exc):
                     raise
                 if session_was_active:
@@ -665,8 +666,8 @@ class DBConnection(object):
                 connection = self._connector.engine.connect()
                 transaction = connection.begin()
                 annotations["retry"] = "1"
-                query_str = self._render_query(query, params, annotations)
-                return self._exec_with_cleanup(connection, query_str, **params)
+                # query_str = self._render_query(query, params, annotations)
+                return self._exec_with_cleanup(connection, query, params)
         finally:
             # Now that the underlying connection has been used, remember it
             # so that all subsequent queries are part of the same transaction.
@@ -674,8 +675,8 @@ class DBConnection(object):
                 self._connection = connection
                 self._transaction = transaction
 
-    @metrics_timer("syncstorage.storage.sql.db.execute")
-    def _exec_with_cleanup(self, connection, query_str, **params):
+    # ##!! #@metrics_timer("syncstorage.storage.sql.db.execute")
+    def _exec_with_cleanup(self, connection, query, params):
         """Execution wrapper that kills queries if it is interrupted.
 
         This is a wrapper around connection.execute() that will clean up
@@ -685,8 +686,11 @@ class DBConnection(object):
         The cleanup currently works only for the PyMySQL driver.  Other
         drivers will still execute fine, they just won't get the cleanup.
         """
+        # ##!! for those non-executable
+        if isinstance(query, str):
+            query = sqltext(query)
         try:
-            return connection.execute(sqltext(query_str), **params)
+            return connection.execute(query, params)
         except Exception:
             # Normal exceptions are passed straight through.
             raise
@@ -696,9 +700,9 @@ class DBConnection(object):
             logger.warn("query was interrupted by %s", val)
             # Only cleanup SELECT, INSERT or UPDATE statements.
             # There are concerns that rolling back DELETEs is too costly.
-            if not SAFE_TO_KILL_QUERY.match(query_str):
+            if not SAFE_TO_KILL_QUERY.match(str(query)):
                 msg = "  refusing to kill unsafe query: %s"
-                logger.warn(msg, query_str[:100])
+                logger.warn(msg, str(query)[:100])
                 raise
             try:
                 # The KILL command is specific to MySQL, and this method of
@@ -732,8 +736,18 @@ class DBConnection(object):
                     connection.invalidate()
                 finally:
                     # Always re-raise the original error.
-                    raise exc, val, tb
+                    # #raise exc, val, tb
+                    raise exc(val).with_traceback(tb)
 
+    # ##!! !DO NOT USE IT!
+    # ## Since sqlalchemy 1.4 + use POSTCOMPILE for IN clause
+    # ## it need to do render in execute time to replace POSTCOMPOE to IN (x,x)
+
+    # ## `query_str = str(compiled)`
+    # ## will make the execute time render not possible,
+    # ## because it is just a string
+
+    # ## Since this function is only to add comment , so we just ignore it!!!!
     def _render_query(self, query, params, annotations):
         """Render a query into its final string form, to send to database.
 
@@ -742,12 +756,12 @@ class DBConnection(object):
         job is to add annotations in a comment on the query.
         """
         # Convert SQLAlchemy expression objects into a string.
-        if isinstance(query, basestring):
+        if isinstance(query, str):
             query_str = query
         else:
             dialect = self._connector._render_query_dialect
             compiled = query.compile(dialect=dialect)
-            for param, value in compiled.params.iteritems():
+            for param, value in compiled.params.items():
                 params.setdefault(param, value)
             query_str = str(compiled)
         # Join all the annotations into a comment string.
@@ -923,14 +937,14 @@ class DBConnection(object):
         batches = defaultdict(list)
         for item in items:
             assert item.get("userid") == userid
-            batches[frozenset(item.iterkeys())].append(item)
+            batches[frozenset(item.keys())].append(item)
         # Now construct and send an appropriate query for each batch.
         num_created = 0
-        for batch in batches.itervalues():
+        for batch in batches.values():
             # Since we're crafting SQL by hand, assert that each field is
             # actually a plain alphanum field name.  Can't be too careful...
-            update_fields = batch[0].keys()
-            insert_fields = batch[0].keys()
+            update_fields = list(batch[0])
+            insert_fields = list(batch[0])
             if defaults is not None:
                 for field in defaults:
                     if field not in batch[0]:

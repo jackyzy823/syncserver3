@@ -208,9 +208,9 @@ def FIND_ITEMS(bso, params):
     """
     fields = params.get("fields", None)
     if fields is None:
-        query = select([bso])
+        query = select(*[bso])
     else:
-        query = select([bso.c[field] for field in fields])
+        query = select(*[bso.c[field] for field in fields])
     query = query.where(bso.c.userid == bindparam("userid"))
     query = query.where(bso.c.collection == bindparam("collectionid"))
     # Filter by the various query parameters.

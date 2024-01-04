@@ -6,7 +6,7 @@ import re
 import logging
 from base64 import b64decode
 
-from mozsvc.metrics import annotate_request
+# from mozsvc.metrics import annotate_request
 
 from syncstorage.bso import BSO, VALID_ID_REGEX
 from syncstorage.util import get_timestamp, json_loads
@@ -22,7 +22,7 @@ TRUE_REGEX = re.compile("^true$", re.I)
 KNOWN_BAD_PAYLOAD_REGEX = re.compile(r'"IV":\s*"AAAAAAAAAAAAAAAAAAAAAA=="')
 
 
-def extract_target_resource(request):
+def extract_target_resource(request, **kwargs):
     """Validator to extract the target resource of a request.
 
     This validator will extract the userid, collection name and item id if
@@ -44,7 +44,7 @@ def extract_target_resource(request):
         request.validated["item"] = request.matchdict["item"]
 
 
-def extract_precondition_headers(request):
+def extract_precondition_headers(request, **kwargs):
     """Validator to extract the X-If-[Unm|M]odified-Since headers.
 
     This validator extracts the X-If-Modified-Since- header or the
@@ -86,7 +86,7 @@ def extract_precondition_headers(request):
                 request.validated["if_unmodified_since"] = if_unmodified_since
 
 
-def extract_query_params(request):
+def extract_query_params(request, **kwargs):
     """Validator to extract BSO search parameters from the query string.
 
     This validator will extract and validate the following search params:
@@ -157,7 +157,7 @@ def extract_query_params(request):
         if len(ids) > BATCH_MAX_IDS:
             msg = 'Cannot process more than %s BSOs at a time'
             msg = msg % (BATCH_MAX_IDS,)
-            request.errors.add("querysting", "items", msg)
+            request.errors.add("querystring", "items", msg)
         else:
             for id in ids:
                 if not VALID_ID_REGEX.match(id):
@@ -169,7 +169,7 @@ def extract_query_params(request):
         request.validated["full"] = True
 
 
-def extract_batch_state(request):
+def extract_batch_state(request, **kwargs):
     """Validator to extract the batch state of a request for slightly
     tidier code in the views.
 
@@ -187,12 +187,15 @@ def extract_batch_state(request):
         else:
             try:
                 batch_id = int(b64decode(batch_id))
-            except TypeError:
+            # ##!! b64decode will raise ValueError when padding incorrectly
+            except (TypeError, ValueError):
                 try:
                     batch_id = int(batch_id)
                 except ValueError:
                     msg = "Invalid batch ID: \"%s\"" % (batch_id,)
-                    request.errors.add("batch", "id", msg)
+                    # ##!! batch is not allowed in cornice/errors
+                    # ##!! should be querystring
+                    request.errors.add("querystring", "id", msg)
         request.validated["batch"] = batch_id
     elif batch_id is None and "batch" in request.GET:
         request.validated["batch"] = True
@@ -204,7 +207,9 @@ def extract_batch_state(request):
             request.validated["commit"] = True
         else:
             msg = "commit parameter must be \"true\" to apply batches"
-            request.errors.add("batch", "commit", msg)
+            # ##!! batch is not allowed in cornice/errors
+            # ##!! should be querystring
+            request.errors.add("querystring", "commit", msg)
 
     # If batch uploads are not enabled in the config then
     # we want to:
@@ -216,7 +221,10 @@ def extract_batch_state(request):
     if not settings.get("storage.batch_upload_enabled", False):
         if request.validated["batch"]:
             if request.validated["batch"] is not True:
-                request.errors.add("batch", "id", "Batch uploads disabled")
+                # ##!! batch is not allowed in cornice/errors
+                # ##!! should be querystring
+                request.errors.add("querystring", "id",
+                                   "Batch uploads disabled")
 
     LIMITS = (
       ("X-Weave-Records", "max_post_records"),
@@ -237,7 +245,7 @@ def extract_batch_state(request):
             raise json_error(400, "size-limit-exceeded")
 
 
-def parse_multiple_bsos(request):
+def parse_multiple_bsos(request, **kwargs):
     """Validator to parse a list of BSOs from the request body.
 
     This validator accepts a list of BSOs in either application/json or
@@ -249,11 +257,11 @@ def parse_multiple_bsos(request):
     content_type = request.content_type
     try:
         if content_type in ("application/json", "text/plain", None):
-            bso_datas = json_loads(request.body)
+            bso_datas = json_loads(request.text)
         elif content_type == "application/newlines":
             bso_datas = []
-            if request.body:
-                for ln in request.body.split("\n"):
+            if request.text:
+                for ln in request.text.split("\n"):
                     bso_datas.append(json_loads(ln))
         else:
             msg = "Unsupported Media Type: %s" % (content_type,)
@@ -320,7 +328,7 @@ def parse_multiple_bsos(request):
     request.validated["invalid_bsos"] = invalid_bsos
 
 
-def parse_single_bso(request):
+def parse_single_bso(request, **kwargs):
     """Validator to parse a single BSO from the request body.
 
     This validator accepts a single BSO in application/json format, parses
@@ -329,7 +337,7 @@ def parse_single_bso(request):
     content_type = request.content_type
     try:
         if content_type in ("application/json", "text/plain", None):
-            bso_data = json_loads(request.body)
+            bso_data = json_loads(request.text)
         else:
             msg = "Unsupported Media Type: %s" % (content_type,)
             request.errors.add("header", "Content-Type", msg)
@@ -357,7 +365,7 @@ class KnownBadPayloadError(Exception):
     pass
 
 
-def check_for_known_bad_payloads(request):
+def check_for_known_bad_payloads(request, **kwargs):
     """Reject specific payloads known to indicate client issues."""
     try:
         # Turns out some clients are not as good at crypto as we'd like.
@@ -374,5 +382,5 @@ def check_for_known_bad_payloads(request):
                 if payload and KNOWN_BAD_PAYLOAD_REGEX.search(payload):
                     raise KnownBadPayloadError
     except KnownBadPayloadError:
-        annotate_request(request, __name__ + ".known_bad_payload", 1)
+        # annotate_request(request, __name__ + ".known_bad_payload", 1)
         request.errors.add("body", "bso", "Known-bad BSO payload")
