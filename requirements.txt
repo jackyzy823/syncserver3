@@ -1,0 +1,13 @@
+gunicorn==21.2.0
+requests==2.31.0
+pyramid==2.0.2
+konfig==1.1
+PyBrowserID==0.14.0
+cornice==6.0.1
+SQLAlchemy==2.0.25
+simplejson==3.19.2
+pyramid_hawkauth==2.0.0
+PyFxA==0.7.7
+PyMySQL[rsa,ed25519]==1.1.0
+##!! Note: psycopg3 (aka psycopg) is not supported due to no lastrowid support which is used in staticnode.py
+psycopg2-binary==2.9.9
