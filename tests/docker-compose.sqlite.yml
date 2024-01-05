@@ -1,0 +1,16 @@
+version: "3"
+services:
+  syncserver3:
+    build:
+      context: ../
+    expose:
+      - "5000"
+    environment:
+      - SYNCSERVER_PUBLIC_URL=http://syncserver3:5000
+      - SYNCSERVER_SQLURI=sqlite://
+
+  tests:
+    image: mozilla/syncserver:latest
+    depends_on:
+      - syncserver3
+    command: test_endpoint http://syncserver3:5000

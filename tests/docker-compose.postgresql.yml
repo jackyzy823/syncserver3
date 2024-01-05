@@ -1,0 +1,46 @@
+version: "3"
+services:
+  db:
+    image: postgres:alpine
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=p
+      - POSTGRES_DB=sync
+    expose:
+      - "5432"
+
+  wait:
+    image: ghcr.io/ufoscout/docker-compose-wait:latest
+    depends_on:
+      - db
+    command: /wait
+    environment:
+      - WAIT_HOSTS=db:5432
+      - WAIT_TIMEOUT=120
+
+  syncserver3:
+    build:
+      context: ../
+    expose:
+      - "5000"
+    depends_on:
+      db:
+        condition: service_started
+      wait:
+        condition: service_completed_successfully
+    environment:
+      - SYNCSERVER_PUBLIC_URL=http://syncserver3:5000
+      - SYNCSERVER_SQLURI=postgresql+psycopg2://postgres:p@db/sync
+
+  tests:
+    image: mozilla/syncserver:latest
+    depends_on:
+      db:
+        condition: service_started
+      wait:
+        condition: service_completed_successfully
+      syncserver3:
+        condition: service_started
+    command: test_endpoint http://syncserver3:5000

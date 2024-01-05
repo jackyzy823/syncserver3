@@ -1,0 +1,7 @@
+.dockerignore
+.gitignore
+.github
+.git
+requirements-full.txt
+tests
+README.md
